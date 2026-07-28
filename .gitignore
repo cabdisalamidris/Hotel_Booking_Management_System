@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+.env
+
+# Flask
+instance/
+
+# Database
+*.db
+
+# VS Code
+.vscode/
+
+# Node
+node_modules/
+dist/
