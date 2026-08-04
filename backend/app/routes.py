@@ -1,0 +1,175 @@
+from datetime import date
+from functools import wraps
+
+from flask import Blueprint, jsonify, request
+from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required
+
+from .extensions import bcrypt, db
+from .models import Booking, CarBooking, CarService, Hotel, User
+
+api = Blueprint("api", __name__, url_prefix="/api")
+
+
+def message(text, status=400):
+    return jsonify({"message": text}), status
+
+
+def admin_required(view):
+    @wraps(view)
+    @jwt_required()
+    def wrapped(*args, **kwargs):
+        user = db.session.get(User, int(get_jwt_identity()))
+        if not user or user.role != "admin":
+            return message("Administrator access is required.", 403)
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def hotel_payload(data, hotel=None):
+    required = ["name", "location", "description", "price_per_night", "available_rooms", "image_url"]
+    if hotel is None and any(not str(data.get(field, "")).strip() for field in required):
+        raise ValueError("Please complete all required hotel fields.")
+    fields = ("name", "location", "description", "price_per_night", "available_rooms", "image_url", "rating", "signature_meal", "featured")
+    values = {field: data[field] for field in fields if field in data}
+    if "amenities" in data:
+        values["amenities"] = ", ".join(data["amenities"]) if isinstance(data["amenities"], list) else str(data["amenities"])
+    for field, value in values.items():
+        setattr(hotel, field, value)
+
+
+@api.get("/health")
+def health():
+    return {"message": "Aurum Reserve API is online"}
+
+
+@api.post("/auth/register")
+def register():
+    data = request.get_json(silent=True) or {}
+    username, email, password = (str(data.get(key, "")).strip() for key in ("username", "email", "password"))
+    if len(username) < 3 or "@" not in email or len(password) < 6:
+        return message("Use a name of 3+ characters, a valid email, and a password of 6+ characters.")
+    if User.query.filter((User.email == email) | (User.username == username)).first():
+        return message("An account with that email or username already exists.", 409)
+    user = User(username=username, email=email.lower(), password_hash=bcrypt.generate_password_hash(password).decode("utf-8"))
+    db.session.add(user)
+    db.session.commit()
+    return jsonify({"token": create_access_token(identity=str(user.id)), "user": user.public()}), 201
+
+
+@api.post("/auth/login")
+def login():
+    data = request.get_json(silent=True) or {}
+    email, password = str(data.get("email", "")).strip().lower(), str(data.get("password", ""))
+    user = User.query.filter_by(email=email).first()
+    if not user or not bcrypt.check_password_hash(user.password_hash, password):
+        return message("Incorrect email or password.", 401)
+    return {"token": create_access_token(identity=str(user.id)), "user": user.public()}
+
+
+@api.get("/auth/me")
+@jwt_required()
+def me():
+    user = db.session.get(User, int(get_jwt_identity()))
+    return {"user": user.public()}
+
+
+@api.get("/hotels")
+def hotels():
+    return jsonify([hotel.public() for hotel in Hotel.query.order_by(Hotel.featured.desc(), Hotel.rating.desc()).all()])
+
+
+@api.get("/hotels/<int:hotel_id>")
+def hotel_detail(hotel_id):
+    hotel = db.session.get(Hotel, hotel_id)
+    return jsonify(hotel.public()) if hotel else message("Hotel not found.", 404)
+
+
+@api.get("/cars")
+def cars():
+    return jsonify([car.public() for car in CarService.query.filter_by(available=True).all()])
+
+
+@api.post("/bookings")
+@jwt_required()
+def create_booking():
+    data = request.get_json(silent=True) or {}
+    try:
+        check_in, check_out = date.fromisoformat(data["check_in"]), date.fromisoformat(data["check_out"])
+        guests, hotel_id = int(data.get("guests", 1)), int(data["hotel_id"])
+    except (KeyError, TypeError, ValueError):
+        return message("Enter valid stay dates and guest count.")
+    hotel = db.session.get(Hotel, hotel_id)
+    if not hotel or check_out <= check_in or guests < 1:
+        return message("Please check your selected hotel and travel dates.")
+    if hotel.available_rooms < 1:
+        return message("This residence has no rooms currently available.", 409)
+    hotel.available_rooms -= 1
+    booking = Booking(check_in=check_in, check_out=check_out, number_of_guests=guests, user_id=int(get_jwt_identity()), hotel_id=hotel.id)
+    db.session.add(booking)
+    db.session.commit()
+    return jsonify({"booking": booking.public(), "message": "Your residence has been reserved."}), 201
+
+
+@api.post("/car-bookings")
+@jwt_required()
+def create_car_booking():
+    data = request.get_json(silent=True) or {}
+    try:
+        service_date, car_id, days = date.fromisoformat(data["service_date"]), int(data["car_id"]), int(data.get("days", 1))
+    except (KeyError, TypeError, ValueError):
+        return message("Enter a valid service date and duration.")
+    car = db.session.get(CarService, car_id)
+    pickup = str(data.get("pickup_location", "")).strip()
+    if not car or not car.available or not pickup or days < 1:
+        return message("Please complete the chauffeur service details.")
+    booking = CarBooking(service_date=service_date, days=days, pickup_location=pickup, user_id=int(get_jwt_identity()), car_id=car.id)
+    db.session.add(booking)
+    db.session.commit()
+    return jsonify({"booking": booking.public(), "message": "Your protected transfer has been reserved."}), 201
+
+
+@api.get("/bookings")
+@jwt_required()
+def bookings():
+    user_id = int(get_jwt_identity())
+    stays = Booking.query.filter_by(user_id=user_id).order_by(Booking.check_in.desc()).all()
+    transfers = CarBooking.query.filter_by(user_id=user_id).order_by(CarBooking.service_date.desc()).all()
+    return jsonify([item.public() for item in stays] + [item.public() for item in transfers])
+
+
+@api.route("/admin/hotels", methods=["GET", "POST"])
+@admin_required
+def admin_hotels():
+    if request.method == "GET":
+        return jsonify([hotel.public() for hotel in Hotel.query.order_by(Hotel.id.desc()).all()])
+    data = request.get_json(silent=True) or {}
+    hotel = Hotel()
+    try:
+        hotel_payload(data, hotel)
+        hotel.price_per_night, hotel.available_rooms = float(hotel.price_per_night), int(hotel.available_rooms)
+        hotel.rating = float(hotel.rating or 4.8)
+    except (ValueError, TypeError):
+        return message("Please supply valid hotel details.")
+    db.session.add(hotel)
+    db.session.commit()
+    return jsonify(hotel.public()), 201
+
+
+@api.route("/admin/hotels/<int:hotel_id>", methods=["PATCH", "DELETE"])
+@admin_required
+def admin_hotel(hotel_id):
+    hotel = db.session.get(Hotel, hotel_id)
+    if not hotel:
+        return message("Hotel not found.", 404)
+    if request.method == "DELETE":
+        db.session.delete(hotel)
+        db.session.commit()
+        return "", 204
+    try:
+        hotel_payload(request.get_json(silent=True) or {}, hotel)
+        hotel.price_per_night, hotel.available_rooms = float(hotel.price_per_night), int(hotel.available_rooms)
+        hotel.rating = float(hotel.rating or 4.8)
+    except (ValueError, TypeError):
+        return message("Please supply valid hotel details.")
+    db.session.commit()
+    return jsonify(hotel.public())
