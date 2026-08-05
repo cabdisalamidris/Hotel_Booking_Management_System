@@ -77,7 +77,7 @@ This repository is ready for a Git-connected deployment:
 2. In Vercel, import this repository. The included `vercel.json` builds the React client and keeps direct links working.
 3. In Vercel's environment variables, set `VITE_API_URL` to the Render service URL (for example, `https://aurum-reserve-api.onrender.com`), then redeploy Vercel.
 
-The Render configuration accepts requests from the Vercel site and generates a production JWT secret. For a long-running deployment, attach a PostgreSQL database in Render and set its `DATABASE_URL` environment variable.
+The Render Blueprint creates a PostgreSQL database and supplies its private connection string as `DATABASE_URL`, so registered users and bookings persist across service restarts. It also accepts requests from the Vercel site and generates a production JWT secret.
 
 ## First administrator
 
