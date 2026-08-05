@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: aurum-reserve-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT run:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: AUTO_SEED
+        value: "true"
+      - key: FRONTEND_URL
+        value: "*"
+      - key: JWT_SECRET_KEY
+        generateValue: true

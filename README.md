@@ -69,6 +69,16 @@ npm run dev
 
 The Vite development server proxies `/api` to the Flask server at `http://127.0.0.1:5000`.
 
+## Deployment
+
+This repository is ready for a Git-connected deployment:
+
+1. In Render, create a new **Blueprint** service from this repository. It reads `render.yaml`, installs the backend dependencies, starts Gunicorn, and seeds the catalogue.
+2. In Vercel, import this repository. The included `vercel.json` builds the React client and keeps direct links working.
+3. In Vercel's environment variables, set `VITE_API_URL` to the Render service URL (for example, `https://aurum-reserve-api.onrender.com`), then redeploy Vercel.
+
+The Render configuration accepts requests from the Vercel site and generates a production JWT secret. For a long-running deployment, attach a PostgreSQL database in Render and set its `DATABASE_URL` environment variable.
+
 ## First administrator
 
 The seed command creates this development-only administrator account:
