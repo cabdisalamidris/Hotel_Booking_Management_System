@@ -25,6 +25,7 @@ const fallbackCars = [
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 const dateToday = new Date().toISOString().split('T')[0]
+const getStoredToken = () => localStorage.getItem('aurum-token') || localStorage.getItem('token') || ''
 
 async function responseData(response) {
   try {
@@ -49,7 +50,7 @@ function App() {
   const [selectedCar, setSelectedCar] = useState(null)
   const [authMode, setAuthMode] = useState(null)
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('aurum-user') || 'null'))
-  const [token, setToken] = useState(() => localStorage.getItem('aurum-token') || '')
+  const [token, setToken] = useState(getStoredToken)
   const [notice, setNotice] = useState('')
   const [adminOpen, setAdminOpen] = useState(false)
 
@@ -74,6 +75,7 @@ function App() {
     setToken(payload.token)
     localStorage.setItem('aurum-user', JSON.stringify(payload.user))
     localStorage.setItem('aurum-token', payload.token)
+    localStorage.setItem('token', payload.token)
   }
 
   function signOut() {
@@ -81,6 +83,7 @@ function App() {
     setToken('')
     localStorage.removeItem('aurum-user')
     localStorage.removeItem('aurum-token')
+    localStorage.removeItem('token')
     setAdminOpen(false)
     showNotice('You have been signed out.')
   }
@@ -103,7 +106,8 @@ function App() {
 
   async function makeBooking(event, type) {
     event.preventDefault()
-    if (!token) {
+    const sessionToken = getStoredToken() || token
+    if (!sessionToken) {
       setAuthMode('login')
       showNotice('Please sign in to secure your reservation.')
       return
@@ -112,7 +116,7 @@ function App() {
     const endpoint = type === 'hotel' ? `${API}/api/bookings` : `${API}/api/car-bookings`
     const body = type === 'hotel' ? { ...data, hotel_id: selectedHotel.id } : { ...data, car_id: selectedCar.id }
     try {
-      const response = await fetch(`${API}${endpoint}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body) })
+      const response = await fetch(`${API}${endpoint}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionToken}` }, body: JSON.stringify(body) })
       const payload = await responseData(response)
       if (!response.ok) throw new Error(requestError(response, payload, 'Your booking could not be completed.'))
       setSelectedHotel(null)
