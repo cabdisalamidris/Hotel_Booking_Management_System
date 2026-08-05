@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 
-const API = import.meta.env.VITE_API_URL || "";
+const API = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 const fallbackHotels = [
   ['Villa Aurora', 'Lake Como, Italy', 1850, 4.9, 'Saffron lobster risotto', 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1200&q=85', 'Private dock, Infinity pool, Sommelier, Butler'],
   ['The Obsidian House', 'Kyoto, Japan', 1320, 4.8, 'A5 wagyu kaiseki', 'https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=1200&q=85', 'Onsen, Tea ceremony, Garden suite, Private dining'],
@@ -112,11 +112,13 @@ function App() {
       showNotice('Please sign in to secure your reservation.')
       return
     }
-    const data = Object.fromEntries(new FormData(event.currentTarget))
-    const endpoint = type === 'hotel' ? `${API}/api/bookings` : `${API}/api/car-bookings`
-    const body = type === 'hotel' ? { ...data, hotel_id: selectedHotel.id } : { ...data, car_id: selectedCar.id }
+    const formData = Object.fromEntries(new FormData(event.currentTarget))
+    const url = type === 'hotel' ? `${API}/api/bookings` : `${API}/api/car-bookings`
+    const body = type === 'hotel'
+      ? { hotel_id: selectedHotel.id, check_in: formData.check_in, check_out: formData.check_out, guests: Number(formData.guests) }
+      : { car_id: selectedCar.id, service_date: formData.service_date, days: Number(formData.days), pickup_location: formData.pickup_location }
     try {
-      const response = await fetch(`${API}${endpoint}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionToken}` }, body: JSON.stringify(body) })
+      const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionToken}` }, body: JSON.stringify(body) })
       const payload = await responseData(response)
       if (!response.ok) throw new Error(requestError(response, payload, 'Your booking could not be completed.'))
       setSelectedHotel(null)
